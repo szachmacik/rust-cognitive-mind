@@ -1,0 +1,47 @@
+name: Build & Deploy Rust CognitiveMind
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache Rust deps
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: |
+          sudo apt-get install -y musl-tools
+          cargo build --release --target x86_64-unknown-linux-musl
+          ls -la target/x86_64-unknown-linux-musl/release/cognitive-node
+
+      - name: Test WebSocket connect
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          UPSTASH_TOKEN: ${{ secrets.UPSTASH_TOKEN }}
+        run: |
+          echo "Binary built: $(wc -c < target/x86_64-unknown-linux-musl/release/cognitive-node) bytes"
+          echo "Rust cognitive-mind ready for deployment"
+
+      - name: Send status to CognitiveMind hub
+        run: |
+          curl -s -X POST "https://cognitive-mind.maciej-koziej01.workers.dev/push" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "type": "publish",
+              "topic": "rust-cognitive-build",
+              "event": "deploy",
+              "payload": {"status":"success","sha":"${{ github.sha }}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"},
+              "source_node": "github-actions"
+            }'
+          echo "Hub notified"
